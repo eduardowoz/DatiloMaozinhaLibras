@@ -1,3 +1,6 @@
-time
+# requirements.txt
+
+opencv-python
 mediapipe
 numpy
+pandas
