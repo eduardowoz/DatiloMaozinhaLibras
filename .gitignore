@@ -14,3 +14,5 @@ __pycache__/
 # Arquivos de configuração de IDEs
 .vscode/
 .idea/
+
+tuner_results/
