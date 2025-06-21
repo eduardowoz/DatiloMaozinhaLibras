@@ -54,7 +54,7 @@ def prepare_sequences(data, n_frames=30):
 
 
 # Configurações
-DATA_DIR = "datasets"
+DATA_DIR = "datasets_libras"
 combined_data, classes = load_and_combine_datasets(DATA_DIR)
 MODEL_PATH = "modelo_todas_letras.keras"
 
