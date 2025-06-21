@@ -9,7 +9,7 @@ __pycache__/
 *.pyc
 
 # Pasta de Dataset (geralmente não versionamos os dados brutos)
-dataset_libras/
+
 
 # Arquivos de configuração de IDEs
 .vscode/
