@@ -19,6 +19,10 @@ def load_and_combine_datasets(base_dir):
             filepath = os.path.join(base_dir, filename)
 
             df = pd.read_csv(filepath)
+
+            # Garante que sample_id seja único entre datasets
+            df["sample_id"] = letter + "_" + df["sample_id"].astype(str)
+
             df["label"] = letter
             all_dfs.append(df)
             classes.append(letter)
@@ -54,7 +58,7 @@ def prepare_sequences(data, n_frames=30):
 
 
 # Configurações
-DATA_DIR = "datasets_libras"
+DATA_DIR = "dataset_libras"
 combined_data, classes = load_and_combine_datasets(DATA_DIR)
 MODEL_PATH = "modelo_todas_letras.keras"
 
