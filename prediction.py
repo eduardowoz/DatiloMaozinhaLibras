@@ -1,163 +1,173 @@
+
 import time
 from collections import deque
-
 import cv2
 import mediapipe as mp
 import numpy as np
 from tensorflow import keras
+import os
 
 # --- CONFIGURAÇÕES ---
-# Caminho para o modelo treinado e para o label encoder
 MODEL_PATH = "modelo_todas_letras.keras"
 LABELS_PATH = "label_encoder_classes.npy"
-
-# Comprimento da sequência de frames que o modelo espera
 SEQUENCE_LENGTH = 30
+PREDICTION_THRESHOLD = 0.7
 
-# Limiar de confiança para exibir a predição
-PREDICTION_THRESHOLD = 0.8  # 80% de confiança
+FRAME_WIDTH = 1280
+FRAME_HEIGHT = 720
+
+# --- VALIDAÇÃO INICIAL ---
+if not os.path.exists(MODEL_PATH) or not os.path.exists(LABELS_PATH):
+    print("ERRO CRÍTICO: Arquivos de modelo não encontrados. Rode 'trainingmodel.py' primeiro.")
+    exit()
 
 # --- INICIALIZAÇÃO ---
 print("Carregando modelo e labels...")
-# Carrega o modelo de deep learning treinado
 model = keras.models.load_model(MODEL_PATH)
-# Carrega as classes (letras) que o modelo pode prever
-classes = np.load(LABELS_PATH)
+classes = np.load(LABELS_PATH, allow_pickle=True)
 print("Modelo e labels carregados com sucesso!")
 
-# Inicializa o MediaPipe Hands
 mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(
-    static_image_mode=False,
-    max_num_hands=1,
-    min_detection_confidence=0.7,
-    min_tracking_confidence=0.7,
-)
+    static_image_mode=False, max_num_hands=1,
+    min_detection_confidence=0.7, min_tracking_confidence=0.7)
 mp_drawing = mp.solutions.drawing_utils
 
-# Inicializa a captura de vídeo
-cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-time.sleep(2)
+print("Acessando a câmera...")
+cap = cv2.VideoCapture(0) 
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
+time.sleep(2.0)
 
 if not cap.isOpened():
     print("Erro: Não foi possível acessar a câmera.")
     exit()
+print(f"Câmera acessada! Resolução: {cap.get(3)}x{cap.get(4)}")
 
-# Fila para armazenar os frames (sequência de landmarks)
+# --- VARIÁVEIS DE ESTADO ---
 sequence = deque(maxlen=SEQUENCE_LENGTH)
-# Fila para suavizar as predições
-predictions_deque = deque(maxlen=10)  # Armazena as últimas 10 predições
+predictions_deque = deque(maxlen=15)
+is_writing_mode = False
+written_text = ""
+last_added_letter = ""
+time_last_detection = time.time()
 
-current_prediction = ""
+# --- CRIAÇÃO DA JANELA ---
+WINDOW_NAME = 'DatiloMaozinha - Predicao em Tempo Real'
+cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
 
 # --- LOOP PRINCIPAL ---
 while True:
     ret, frame = cap.read()
     if not ret:
-        print("Erro ao capturar frame. Encerrando...")
-        break
+        continue
 
-    # Espelha a imagem para uma visualização tipo "espelho"
-    frame = cv2.flip(frame, 1)
-    # Converte a imagem de BGR para RGB, que é o formato esperado pelo MediaPipe
-    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-    # Processa a imagem para detectar as mãos
+    frame_flipped = cv2.flip(frame, 1)
+    rgb_frame = cv2.cvtColor(frame_flipped, cv2.COLOR_BGR2RGB)
     result = hands.process(rgb_frame)
 
-    landmarks_data = []
-    # Se uma mão for detectada
-    if result.multi_hand_landmarks:
-        hand_landmarks = result.multi_hand_landmarks[0]
-        # Desenha os landmarks e as conexões na imagem
-        mp_drawing.draw_landmarks(
-            frame, hand_landmarks, mp_hands.HAND_CONNECTIONS
-        )
+    current_prediction_display = ""
 
-        # --- NORMALIZAÇÃO DOS LANDMARKS (igual ao script de captura) ---
+    if result.multi_hand_landmarks:
+        time_last_detection = time.time()
+        hand_landmarks = result.multi_hand_landmarks[0]
+        mp_drawing.draw_landmarks(frame_flipped, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+        
+        # Lógica de normalização e predição (continua a mesma)
         landmarks = []
         for lm in hand_landmarks.landmark:
             landmarks.extend([lm.x, lm.y, lm.z])
-
         points = np.array(landmarks).reshape((21, 3))
-
-        # 1. Relativizar ao ponto do pulso (landmark 0)
+        
         base_point = points[0].copy()
         points -= base_point
-
-        # 2. Normalizar pela distância máxima
         max_value = np.max(np.linalg.norm(points, axis=1))
-        if max_value > 1e-6:  # Evita divisão por zero
+        if max_value > 1e-6:
             points /= max_value
-
-        # Adiciona os pontos normalizados à sequência
+        
         sequence.append(points)
 
-        # --- PREDIÇÃO ---
-        # Verifica se a sequência atingiu o tamanho necessário para o modelo
         if len(sequence) == SEQUENCE_LENGTH:
-            # Converte a sequência para o formato que o modelo espera: (1, 30, 21, 3)
             input_data = np.expand_dims(np.array(sequence), axis=0)
-            input_data = input_data.reshape(
-                1, SEQUENCE_LENGTH, 21, 3
-            )  # Garante o reshape correto
-
-            # Realiza a predição
-            prediction = model.predict(input_data, verbose=0)[0]
-
-            confidence = np.max(prediction)
-
-            # Adiciona a predição na fila de suavização
+            prediction_array = model.predict(input_data, verbose=0)[0]
+            confidence = np.max(prediction_array)
+            
             if confidence >= PREDICTION_THRESHOLD:
-                predicted_class_index = np.argmax(prediction)
+                predicted_class_index = np.argmax(prediction_array)
                 predicted_letter = classes[predicted_class_index]
                 predictions_deque.append(predicted_letter)
 
-            # Atualiza a predição exibida se ela for a mais comum nas últimas frames
-            if len(predictions_deque) > 0:
-                most_common_prediction = max(
-                    set(predictions_deque), key=predictions_deque.count
-                )
-                current_prediction = (
-                    f"{most_common_prediction} ({confidence*100:.1f}%)"
-                )
+            if len(predictions_deque) > 5:
+                most_common_prediction = max(set(predictions_deque), key=predictions_deque.count)
+                current_prediction_display = f"{most_common_prediction} ({confidence*100:.0f}%)"
+
+                if is_writing_mode:
+                    if most_common_prediction != last_added_letter:
+                        written_text += most_common_prediction
+                        last_added_letter = most_common_prediction
+                else:
+                    written_text = most_common_prediction
     else:
-        # Se nenhuma mão for detectada, limpa a sequência para evitar predições antigas
-        # sequence.clear() # Opcional: pode tornar a detecção mais "imediata" ao reaparecer a mão
-        pass
+        if time.time() - time_last_detection > 1.5:
+            last_added_letter = ""
+            predictions_deque.clear()
 
-    # --- EXIBIÇÃO NA TELA ---
-    # Coloca um retângulo de fundo para o texto
-    cv2.rectangle(frame, (0, 0), (350, 60), (0, 0, 0), -1)
-    # Escreve a predição na tela
-    cv2.putText(
-        frame,
-        f"LETRA: {current_prediction}",
-        (10, 40),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        1.2,
-        (255, 255, 255),
-        2,
-        cv2.LINE_AA,
-    )
-    cv2.putText(
-        frame,
-        "Pressione 'Q' para sair",
-        (10, frame.shape[0] - 20),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
-        (255, 255, 255),
-        1,
-    )
 
-    cv2.imshow("Predicao de LIBRAS em Tempo Real", frame)
+    # ### INÍCIO DA ALTERAÇÃO NA INTERFACE ###
+    # --- EXIBIÇÃO NA TELA (COM AJUDA VISUAL) ---
+    
+    # Painel superior
+    cv2.rectangle(frame_flipped, (0, 0), (FRAME_WIDTH, 60), (20, 20, 20), -1)
+    cv2.putText(frame_flipped, f"PREVISAO: {current_prediction_display}", (10, 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    
+    mode_text = "MODO: ESCREVER" if is_writing_mode else "MODO: SOBRESCREVER"
+    color = (0, 255, 0) if is_writing_mode else (0, 165, 255)
+    (w, h), _ = cv2.getTextSize(mode_text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
+    cv2.putText(frame_flipped, mode_text, (FRAME_WIDTH - w - 10, 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+    
+    # Painel inferior
+    cv2.rectangle(frame_flipped, (0, FRAME_HEIGHT - 100), (FRAME_WIDTH, FRAME_HEIGHT), (20, 20, 20), -1)
+    
+    # Texto escrito
+    cv2.putText(frame_flipped, written_text, (10, FRAME_HEIGHT - 55),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 0), 2)
 
-    # Verifica se a tecla 'q' foi pressionada para sair
-    if cv2.waitKey(10) & 0xFF == ord("q"):
+    # Novo: Texto de ajuda para os comandos
+    help_text = "E: Escrever | S: Sobrescrever | D: Del | Espaco | Q: Sair"
+    cv2.putText(frame_flipped, help_text, (10, FRAME_HEIGHT - 15), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1)
+    
+    cv2.imshow(WINDOW_NAME, frame_flipped)
+    # ### FIM DA ALTERAÇÃO NA INTERFACE ###
+
+    # --- CONTROLE POR TECLADO ---
+    key = cv2.waitKey(10) & 0xFF
+    if key == ord('q'):
         break
+    elif key == ord('e'):
+        if not is_writing_mode:
+            is_writing_mode = True
+            written_text = ""
+            last_added_letter = ""
+            print("MODO DE ESCRITA ATIVADO")
+    elif key == ord('s'):
+        if is_writing_mode:
+            is_writing_mode = False
+            print("MODO DE SOBRESCREVER ATIVADO")
+    elif key == ord('d'):
+        if is_writing_mode and len(written_text) > 0:
+            written_text = written_text[:-1]
+            last_added_letter = ""
+    elif key == ord(' '):
+        if is_writing_mode and (not written_text or not written_text.endswith(' ')):
+            written_text += ' '
+            last_added_letter = " "
 
 # --- FINALIZAÇÃO ---
 print("\nEncerrando o programa.")
 cap.release()
 cv2.destroyAllWindows()
-cv2.destroyAllWindows()
+
+
