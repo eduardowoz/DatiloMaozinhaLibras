@@ -3,9 +3,20 @@ import os
 import keras_tuner as kt
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import LabelEncoder
 from tensorflow import keras
+
+gpus = tf.config.list_physical_devices("GPU")
+if gpus:
+    try:
+        # Currently, memory growth needs to be the same across GPUs
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        tf.config.set_visible_devices(gpus[0], "GPU")
+    except RuntimeError as e:
+        print(e)
 
 
 # 1. Carregar e concatenar todos os datasets
@@ -58,9 +69,9 @@ def prepare_sequences(data, n_frames=30):
 
 
 # Configurações
-DATA_DIR = "dataset_libras"
+DATA_DIR = "/content/drive/MyDrive/1 - Colab Notebooks/datasets/dataset_libras"
 combined_data, classes = load_and_combine_datasets(DATA_DIR)
-MODEL_PATH = "modelo_todas_letras.keras"
+MODEL_PATH = "/content/drive/MyDrive/1 - Colab Notebooks/models/modelo_todas_letras.keras"
 
 # 2. Pré-processamento corrigido
 X, y = prepare_sequences(combined_data, n_frames=30)  # 30 frames por amostra
@@ -120,20 +131,18 @@ def build_model(hp):
     lstm_units = hp.Int("lstm_units", 64, 256, step=64)
     return_sequences = hp.Boolean("lstm_return_seq")
 
-    if hp.Boolean("use_bilstm"):
-        model.add(
-            keras.layers.Bidirectional(
-                keras.layers.LSTM(
-                    units=lstm_units, return_sequences=return_sequences
-                )
-            )
-        )
-    else:
-        model.add(
-            keras.layers.LSTM(
-                units=lstm_units, return_sequences=return_sequences
-            )
-        )
+    # if hp.Boolean("use_bilstm"):
+    #     model.add(
+    #         keras.layers.Bidirectional(
+    #             keras.layers.LSTM(
+    #                 units=lstm_units, return_sequences=return_sequences
+    #             )
+    #         )
+    #     )
+    # else:
+    model.add(
+        keras.layers.LSTM(units=lstm_units, return_sequences=return_sequences)
+    )
 
     if return_sequences:
         model.add(keras.layers.GlobalAveragePooling1D())
@@ -185,36 +194,36 @@ batch_size = 32
 # 5. Busca de Hiperparâmetros com Cross-Validation
 tuner = kt.BayesianOptimization(
     build_model,
-    objective="val_accuracy",
-    max_trials=30,
+    objective="accuracy",
+    max_trials=10,
     directory="tuner_results",
     project_name="sign_language_tuning",
     overwrite=True,
 )
 
-for fold, (train_idx, val_idx) in enumerate(kfold_search.split(X, y_onehot)):
-    print(f"\nFold {fold + 1} - Busca de Hiperparâmetros")
-    X_train, X_val = X[train_idx], X[val_idx]
-    y_train, y_val = y_onehot[train_idx], y_onehot[val_idx]
+# for fold, (train_idx, val_idx) in enumerate(kfold_search.split(X, y_onehot)):
+#     print(f"\nFold {fold + 1} - Busca de Hiperparâmetros")
+#     X_train, X_val = X[train_idx], X[val_idx]
+#     y_train, y_val = y_onehot[train_idx], y_onehot[val_idx]
 
-    tuner.search(
-        X_train,
-        y_train,
-        epochs=50,
-        validation_data=(X_val, y_val),
-        batch_size=batch_size,
-        callbacks=[
-            keras.callbacks.EarlyStopping(
-                patience=5,
-                monitor="val_accuracy",
-                mode="max",
-                restore_best_weights=True,
-            )
-        ],
-        verbose=1,
-    )
+tuner.search(
+    X,
+    y_onehot,
+    epochs=100,
+    batch_size=batch_size,
+    callbacks=[
+        keras.callbacks.EarlyStopping(
+            patience=5,
+            monitor="accuracy",
+            mode="max",
+            restore_best_weights=True,
+        )
+    ],
+    verbose=1,
+)
 
-# 6. Avaliação Final com Cross-Validation
+print(tuner.get_best_hyperparameters()[0].values.items())
+
 if len(tuner.get_best_hyperparameters()) > 0:
     best_hps = tuner.get_best_hyperparameters()[0]
     print("\nMelhores hiperparâmetros encontrados:")
@@ -240,10 +249,10 @@ if len(tuner.get_best_hyperparameters()) > 0:
             y_train,
             epochs=2000,
             batch_size=batch_size,
-            validation_split=0.2,
+            # validation_split=0.2,
             callbacks=[
                 keras.callbacks.EarlyStopping(
-                    patience=10,
+                    patience=100,
                     monitor="accuracy",
                     mode="max",
                     restore_best_weights=True,
@@ -270,37 +279,35 @@ if len(tuner.get_best_hyperparameters()) > 0:
         f"Acurácia média: {np.mean(accuracies):.4f} (±{np.std(accuracies):.4f})"
     )
 
-    # Treinar modelo final com todos os dados (opcional)
-    print("\nTreinando modelo final com todos os dados...")
-    final_model = tuner.hypermodel.build(best_hps)
-    final_model.fit(
-        X,
-        y_onehot,
-        epochs=200,
-        batch_size=batch_size,
-        callbacks=[
-            keras.callbacks.EarlyStopping(
-                patience=10,
-                monitor="accuracy",
-                mode="max",
-                restore_best_weights=True,
-            ),
-            keras.callbacks.ModelCheckpoint(
-                MODEL_PATH,
-                save_best_only=True,
-                monitor="val_accuracy",
-                mode="max",
-            ),
-        ],
-        verbose=2,
-    )
+# Treinar modelo final com todos os dados (opcional)
+print("\nTreinando modelo final com todos os dados...")
+final_model = tuner.hypermodel.build(best_hps)
+final_model.fit(
+    X,
+    y_onehot,
+    epochs=2000,
+    batch_size=batch_size,
+    callbacks=[
+        keras.callbacks.EarlyStopping(
+            patience=10,
+            monitor="accuracy",
+            mode="max",
+            restore_best_weights=True,
+        ),
+        keras.callbacks.ModelCheckpoint(
+            MODEL_PATH,
+            save_best_only=True,
+            monitor="val_accuracy",
+            mode="max",
+        ),
+    ],
+    verbose=2,
+)
 
-    # Salvar modelo e label encoder
-    final_model.save(MODEL_PATH)
-    np.save("label_encoder_classes.npy", le.classes_)
-    print("Modelo e label encoder salvos com sucesso!")
-else:
-    print("Nenhum modelo válido foi encontrado durante a otimização.")
+# Salvar modelo e label encoder
+final_model.save(MODEL_PATH)
+np.save("label_encoder_classes.npy", le.classes_)
+print("Modelo e label encoder salvos com sucesso!")
 
 
 # ###########################################################
