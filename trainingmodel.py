@@ -66,14 +66,14 @@ MODEL_PATH = "modelo_todas_letras.keras"
 X, y = prepare_sequences(combined_data, n_frames=30)  # 30 frames por amostra
 
 # Normalização por coordenada
-for i in range(X.shape[0]):  # Para cada amostra
-    for j in range(21):  # Para cada ponto
-        for k in range(3):  # Para cada coordenada (x,y,z)
-            min_val = X[:, :, j, k].min()
-            max_val = X[:, :, j, k].max()
-            X[i, :, j, k] = (X[i, :, j, k] - min_val) / (
-                max_val - min_val + 1e-8
-            )
+# for i in range(X.shape[0]):  # Para cada amostra
+#     for j in range(21):  # Para cada ponto
+#         for k in range(3):  # Para cada coordenada (x,y,z)
+#             min_val = X[:, :, j, k].min()
+#             max_val = X[:, :, j, k].max()
+#             X[i, :, j, k] = (X[i, :, j, k] - min_val) / (
+#                 max_val - min_val + 1e-8
+#             )
 
 # Codificação das classes
 le = LabelEncoder()
@@ -238,18 +238,18 @@ if len(tuner.get_best_hyperparameters()) > 0:
         history = model.fit(
             X_train,
             y_train,
-            epochs=200,
+            epochs=2000,
             batch_size=batch_size,
             validation_split=0.2,
             callbacks=[
                 keras.callbacks.EarlyStopping(
                     patience=10,
-                    monitor="val_accuracy",
+                    monitor="accuracy",
                     mode="max",
                     restore_best_weights=True,
                 ),
                 keras.callbacks.ReduceLROnPlateau(
-                    monitor="val_accuracy", factor=0.5, patience=3, min_lr=1e-6
+                    monitor="accuracy", factor=0.5, patience=3, min_lr=1e-6
                 ),
             ],
             verbose=2,
@@ -286,7 +286,10 @@ if len(tuner.get_best_hyperparameters()) > 0:
                 restore_best_weights=True,
             ),
             keras.callbacks.ModelCheckpoint(
-                MODEL_PATH, save_best_only=True, monitor="accuracy", mode="max"
+                MODEL_PATH,
+                save_best_only=True,
+                monitor="val_accuracy",
+                mode="max",
             ),
         ],
         verbose=2,
@@ -298,11 +301,6 @@ if len(tuner.get_best_hyperparameters()) > 0:
     print("Modelo e label encoder salvos com sucesso!")
 else:
     print("Nenhum modelo válido foi encontrado durante a otimização.")
-
-
-
-
-
 
 
 # ###########################################################
@@ -345,7 +343,7 @@ else:
 
 #     if not all_dfs:
 #         return pd.DataFrame(), []
-        
+
 #     combined_df = pd.concat(all_dfs, ignore_index=True)
 #     return combined_df, sorted(classes)
 
@@ -368,7 +366,7 @@ else:
 
 # def normalize_dataset(X):
 #     """Aplica a normalização (pulso + escala) em todo o dataset."""
-#     X_reshaped = X.reshape(X.shape[0], X.shape[1], 21, 3) 
+#     X_reshaped = X.reshape(X.shape[0], X.shape[1], 21, 3)
 #     X_normalized = np.zeros_like(X_reshaped, dtype=float)
 #     for i in range(X_reshaped.shape[0]):
 #         for j in range(X_reshaped.shape[1]):
