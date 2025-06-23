@@ -4,11 +4,14 @@ from collections import deque
 import cv2
 import mediapipe as mp
 import numpy as np
+import tensorflow as tf
 from tensorflow import keras
 
 # --- CONFIGURAÇÕES ---
 # Caminho para o modelo treinado e para o label encoder
-MODEL_PATH = "modelo_todas_letras.keras"
+MODEL_PATH = (
+    "D:\programacao\DatiloMaozinhaLibras\modelo_todas_letras (6).keras"
+)
 LABELS_PATH = "label_encoder_classes.npy"
 
 # Comprimento da sequência de frames que o modelo espera
@@ -21,6 +24,7 @@ PREDICTION_THRESHOLD = 0.8  # 80% de confiança
 print("Carregando modelo e labels...")
 # Carrega o modelo de deep learning treinado
 model = keras.models.load_model(MODEL_PATH)
+
 # Carrega as classes (letras) que o modelo pode prever
 classes = np.load(LABELS_PATH)
 print("Modelo e labels carregados com sucesso!")
