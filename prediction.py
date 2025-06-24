@@ -10,7 +10,7 @@ from tensorflow import keras
 
 # --- CONFIGURAÇÕES ---
 # Caminho para o modelo treinado e para o label encoder
-MODEL_PATH = "modelo_todas_letras (7).keras"
+MODEL_PATH = "modelo_todas_letras (9).keras"
 LABELS_PATH = "label_encoder_classes.npy"
 SEQUENCE_LENGTH = 30
 PREDICTION_THRESHOLD = 0.7
